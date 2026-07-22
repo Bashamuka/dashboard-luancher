@@ -1,0 +1,11 @@
+{
+  "name": "dashboard-launcher",
+  "version": "1.0.0",
+  "description": "Launcher local pour le Model Performance Dashboard",
+  "main": "server.js",
+  "pkg": {
+    "assets": [
+      "app/**/*"
+    ]
+  }
+}
