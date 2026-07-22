@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Performance Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #10151d;
+    --surface: #182030;
+    --surface-2: #1f2a3d;
+    --line: #2a3650;
+    --text: #e8edf5;
+    --muted: #8a94a6;
+    --good: #4fd8c4;
+    --warn: #f5b454;
+    --bad: #f27d72;
+    --series-a: #8fa8ff;
+    --series-b: #4fd8c4;
+    --series-c: #f5b454;
+    --series-d: #f27d72;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { animation: none !important; transition: none !important; }
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    min-height: 100vh;
+  }
+  a { color: var(--series-a); }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: rgba(16, 21, 29, 0.92);
+    backdrop-filter: blur(8px);
+    z-index: 20;
+  }
+  .brand h1 {
+    font-family: 'Sora', sans-serif;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  .brand p { font-size: 12.5px; color: var(--muted); }
+  .spacer { flex: 1; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  button, select {
+    font-family: 'Inter', sans-serif;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  button:hover, select:hover { border-color: var(--series-a); }
+  button:focus-visible, select:focus-visible, .switch input:focus-visible + .track {
+    outline: 2px solid var(--series-a);
+    outline-offset: 2px;
+  }
+  button.primary { background: var(--series-a); border-color: var(--series-a); color: #0d1220; font-weight: 600; }
+  button.primary:hover { background: #a5b9ff; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch .track {
+    width: 38px; height: 21px; border-radius: 999px;
+    background: var(--surface-2); border: 1px solid var(--line);
+    position: relative; transition: background 0.15s ease;
+  }
+  .switch .track::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--muted); transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .switch input:checked + .track { background: rgba(245, 180, 84, 0.25); border-color: var(--warn); }
+  .switch input:checked + .track::after { transform: translateX(17px); background: var(--warn); }
+  .switch .lbl { font-size: 13.5px; font-weight: 500; }
+
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+  .status-dot.live { background: var(--good); box-shadow: 0 0 8px rgba(79, 216, 196, 0.6); }
+  #fileStatus { font-size: 12.5px; color: var(--muted); }
+
+  /* ---------- Layout ---------- */
+  main { max-width: 1180px; margin: 0 auto; padding: 26px 28px 70px; }
+  section { margin-top: 34px; }
+  .section-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .section-head h2 {
+    font-family: 'Sora', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .section-head .sub { font-size: 12.5px; color: var(--muted); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+
+  /* Plain-English explainer cards (signature element) */
+  .explain {
+    display: none;
+    border-left: 3px solid var(--warn);
+    background: rgba(245, 180, 84, 0.07);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    font-size: 13.5px;
+    color: #d9dfeb;
+  }
+  .explain strong { color: var(--warn); font-weight: 600; }
+  body.explain-on .explain { display: block; }
+  .term { border-bottom: 1px dotted var(--muted); cursor: help; position: relative; }
+  .term:hover::after, .term:focus::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: 260px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 11px;
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--text);
+    line-height: 1.45;
+    z-index: 30;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  }
+
+  /* ---------- KPI cards ---------- */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .kpi { padding: 16px 18px; }
+  .kpi .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+  .kpi .value { font-family: 'IBM Plex Mono', monospace; font-size: 30px; font-weight: 600; margin-top: 6px; }
+  .kpi .delta { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; margin-top: 4px; color: var(--muted); }
+  .delta.up { color: var(--good); }
+  .delta.down { color: var(--bad); }
+  .kpi-secondary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 14px; }
+  .kpi-secondary .kpi .value { font-size: 21px; }
+
+  /* ---------- Charts ---------- */
+  .chart-wrap { position: relative; height: 320px; }
+  /* minmax(0, …) lets each column shrink below its content width: no overflow, no scrollbar */
+  .chart-row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; }
+  .chart-row > .card { min-width: 0; }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+
+  /* ---------- Table ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: clamp(11.5px, 1.1vw, 13.5px); }
+  th, td { text-align: left; padding: 9px 7px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: clamp(10px, 0.95vw, 11.5px); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; }
+  td.num { font-family: 'IBM Plex Mono', monospace; }
+  tr:last-child td { border-bottom: none; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: clamp(10.5px, 0.95vw, 12px); font-weight: 600;
+  }
+  .pill.strong { background: rgba(79, 216, 196, 0.15); color: var(--good); }
+  .pill.ok     { background: rgba(143, 168, 255, 0.15); color: var(--series-a); }
+  .pill.weak   { background: rgba(242, 125, 114, 0.15); color: var(--bad); }
+
+  /* ---------- Empty state / dropzone ---------- */
+  #emptyState {
+    margin-top: 60px;
+    border: 2px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 70px 30px;
+    text-align: center;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  #emptyState.drag { border-color: var(--series-a); background: rgba(143, 168, 255, 0.06); }
+  #emptyState h2 { font-family: 'Sora', sans-serif; font-size: 20px; margin-bottom: 10px; }
+  #emptyState p { color: var(--muted); max-width: 520px; margin: 0 auto 22px; }
+  #emptyState .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  #dashboard { display: none; }
+
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 18px; font-size: 13.5px; opacity: 0;
+    transition: transform 0.25s ease, opacity 0.25s ease; z-index: 50;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  #toast.err { border-color: var(--bad); color: var(--bad); }
+
+  @media (max-width: 1100px) {
+    .chart-row { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 900px) {
+    .kpi-grid, .kpi-secondary { grid-template-columns: repeat(2, 1fr); }
+    main { padding: 20px 16px 60px; }
+    header { padding: 16px; }
+  }
+  @media (max-width: 520px) {
+    .kpi-grid, .kpi-secondary { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body class="explain-on">
+
+<header>
+  <div class="brand">
+    <h1>Model Performance Dashboard</h1>
+    <p><span class="status-dot" id="statusDot"></span><span id="fileStatus">No file loaded</span></p>
+  </div>
+  <div class="spacer"></div>
+  <div class="controls">
+    <label class="switch" title="Show plain-English explanations of every metric">
+      <input type="checkbox" id="explainToggle" checked>
+      <span class="track"></span>
+      <span class="lbl">Explain metrics</span>
+    </label>
+    <select id="runSelect" title="Choose which training run to inspect" style="display:none"></select>
+    <button id="refreshBtn" style="display:none" title="Re-read the connected Excel file">&#8635; Refresh</button>
+    <button id="connectBtn" class="primary">Connect Excel file</button>
+  </div>
+</header>
+
+<main>
+  <!-- ========== EMPTY STATE ========== -->
+  <div id="emptyState">
+    <h2>Load your training log to get started</h2>
+    <p>Drop <strong>model_performance_log.xlsx</strong> anywhere on this page, or use one of the
+       buttons below. The file must contain the sheets <em>Synthese</em>,
+       <em>Details_par_classe</em> and <em>Repartition_classes</em>.</p>
+    <div class="btns">
+      <button id="pickBtn" class="primary">Connect file (live refresh)</button>
+      <button id="uploadBtn">Upload a copy</button>
+    </div>
+    <p style="margin-top:18px; font-size:12.5px;">"Connect" keeps a link to the file on disk so the
+       Refresh button always shows the latest runs (Chrome / Edge). "Upload" works in every browser
+       but needs a re-upload after each new training run.</p>
+    <input type="file" id="fileInput" accept=".xlsx,.xlsm" style="display:none">
+  </div>
+
+  <!-- ========== DASHBOARD ========== -->
+  <div id="dashboard">
+
+    <!-- Global KPIs -->
+    <section>
+      <div class="section-head">
+        <h2>Run overview</h2>
+        <span class="sub" id="runMeta"></span>
+      </div>
+      <div class="explain">
+        <strong>In plain English:</strong> after each training session, the model is graded on a set of
+        examples it has never seen (the <em>test set</em>). <strong>Accuracy</strong> is the share of those
+        examples it got right &mdash; 0.70 means 70&nbsp;out of&nbsp;100 correct. <strong>F1</strong> blends two ideas:
+        how often the model's predictions are correct, and how many real cases it manages to find.
+        The <em>macro</em> version grades every class equally (a fair test when some classes are rare);
+        the <em>weighted</em> version lets the big classes count for more. Arrows compare this run with
+        the previous one.
+      </div>
+      <div class="kpi-grid">
+        <div class="card kpi">
+          <div class="label"><span class="term" tabindex="0" data-tip="Share of test examples predicted correctly, all classes combined.">Accuracy</span></div>
+          <div class="value" id="kAcc">&ndash;</div>
+          <div class="delta" id="dAcc"></div>
+        </div>
+        <div class="card kpi">
+          <div class="label"><span class="term" tabindex="0" data-tip="Average F1 across classes, each class counting equally. The honest score when classes are imbalanced.">F1 macro</span></div>
+          <div class="value" id="kF1m">&ndash;</div>
+          <div class="delta" id="dF1m"></div>
+        </div>
+        <div class="card kpi">
+          <div class="label"><span class="term" tabindex="0" data-tip="Average F1 across classes, weighted by how many examples each class has.">F1 weighted</span></div>
+          <div class="value" id="kF1w">&ndash;</div>
+          <div class="delta" id="dF1w"></div>
+        </div>
+        <div class="card kpi">
+          <div class="label"><span class="term" tabindex="0" data-tip="Examples used: train = what the model learns from, test = unseen examples used for grading.">Dataset size</span></div>
+          <div class="value" id="kSize" style="font-size:21px; margin-top:10px;">&ndash;</div>
+          <div class="delta" id="dSize"></div>
+        </div>
+      </div>
+      <div class="kpi-secondary">
+        <div class="card kpi">
+          <div class="label"><span class="term" tabindex="0" data-tip="When the model predicts a class, how often that prediction is correct (macro average).">Precision macro</span></div>
+          <div class="value" id="kPm">&ndash;</div>
+        </div>
+        <div class="card kpi">
+          <div class="label"><span class="term" tabindex="0" data-tip="Of all real cases of each class, how many the model finds (macro average).">Recall macro</span></div>
+          <div class="value" id="kRm">&ndash;</div>
+        </div>
+        <div class="card kpi">
+          <div class="label"><span class="term" tabindex="0" data-tip="Precision averaged with big classes counting more.">Precision weighted</span></div>
+          <div class="value" id="kPw">&ndash;</div>
+        </div>
+        <div class="card kpi">
+          <div class="label"><span class="term" tabindex="0" data-tip="Recall averaged with big classes counting more.">Recall weighted</span></div>
+          <div class="value" id="kRw">&ndash;</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Trends -->
+    <section>
+      <div class="section-head">
+        <h2>Progress over time</h2>
+        <span class="sub">All runs found in the file</span>
+      </div>
+      <div class="explain">
+        <strong>In plain English:</strong> each point is one training run. Lines going up mean the model is
+        improving. If <em>F1 macro</em> lags far below <em>Accuracy</em>, the model is doing well on the common
+        classes but struggling on the rare ones.
+      </div>
+      <div class="card">
+        <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+        <p class="note" id="trendNote"></p>
+      </div>
+    </section>
+
+    <!-- Per-class -->
+    <section>
+      <div class="section-head">
+        <h2>Performance by class</h2>
+        <span class="sub" id="classMeta"></span>
+      </div>
+      <div class="explain">
+        <strong>In plain English:</strong> for each class &mdash; <strong>Precision</strong>: when the model says
+        "this is class X", how often it is right. <strong>Recall</strong>: of all the real class-X cases, how many
+        it catches. <strong>F1</strong>: the balance of the two (high only when both are high).
+        <strong>Support</strong>: how many test examples the class has &mdash; scores based on very few examples
+        are less reliable. Classes flagged <em style="color:var(--bad)">Weak</em> (F1&nbsp;&lt;&nbsp;0.60) deserve attention first.
+      </div>
+      <div class="chart-row">
+        <div class="card">
+          <div class="chart-wrap"><canvas id="classChart"></canvas></div>
+        </div>
+        <div class="card" style="padding:12px 14px;">
+          <table id="classTable">
+            <thead>
+              <tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th><th>Status</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Distribution -->
+    <section>
+      <div class="section-head">
+        <h2>Class distribution</h2>
+        <span class="sub" id="distMeta"></span>
+      </div>
+      <div class="explain">
+        <strong>In plain English:</strong> this shows how many examples each class has in the dataset.
+        When one class dominates, the model naturally gets better at it and worse at the rare ones &mdash;
+        that is called <strong>class imbalance</strong>, and it is the usual reason rare classes score low above.
+        The imbalance ratio compares the biggest class with the smallest.
+      </div>
+      <div class="chart-row">
+        <div class="card">
+          <div class="chart-wrap"><canvas id="distChart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="label" style="font-size:12px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); font-weight:600;">Imbalance ratio</div>
+          <div class="value" id="kImb" style="font-family:'IBM Plex Mono',monospace; font-size:30px; font-weight:600; margin-top:6px;">&ndash;</div>
+          <p class="note" id="imbNote"></p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =======================================================================
+   *  CONFIGURATION — edit these two lines to hard-wire your data source
+   * =======================================================================
+   *  DATA_SOURCE_URL : direct http(s) link to model_performance_log.xlsx.
+   *    - Leave as '' to keep the manual Connect / Upload behaviour.
+   *    - The URL must be reachable from the browser and allow CORS.
+   *      Easiest setup: serve the folder containing the file, e.g.
+   *          python -m http.server 8000
+   *      then use  'http://localhost:8000/model_performance_log.xlsx'
+   *      (a raw local path like C:\...\file.xlsx cannot be fetched by a
+   *       browser page — it has to go through http/https).
+   *
+   *  AUTO_REFRESH_MINUTES : how often to re-read the source automatically.
+   *    Applies to the hard-wired URL and to a file connected via the
+   *    "Connect file" button. Set to 0 to disable. Default: 60 (every hour).
+   * ======================================================================= */
+  var DATA_SOURCE_URL = '';
+  var AUTO_REFRESH_MINUTES = 60;
+
+  // ---------------- State ----------------
+  var runs = [];          // sorted ascending by date
+  var selectedIdx = -1;   // index into runs
+  var fileHandle = null;  // FileSystemFileHandle when connected
+  var autoTimer = null;   // interval id for auto-refresh
+  var charts = { trend: null, cls: null, dist: null };
+  var F1_STRONG = 0.75, F1_OK = 0.60;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---------------- Helpers ----------------
+  function fmt(v, digits) {
+    if (v === null || v === undefined || isNaN(v)) return '\u2013';
+    return Number(v).toFixed(digits === undefined ? 3 : digits);
+  }
+  function fmtInt(v) { return (v === null || v === undefined || isNaN(v)) ? '\u2013' : Number(v).toLocaleString('en-US'); }
+  function toast(msg, isErr) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.className = isErr ? 'show err' : 'show';
+    clearTimeout(t._h);
+    t._h = setTimeout(function () { t.className = ''; }, 3200);
+  }
+  function dateKey(v) {
+    if (v instanceof Date && !isNaN(v)) {
+      var p = function (n) { return String(n).padStart(2, '0'); };
+      return v.getFullYear() + '-' + p(v.getMonth() + 1) + '-' + p(v.getDate()) + ' ' +
+             p(v.getHours()) + ':' + p(v.getMinutes()) + ':' + p(v.getSeconds());
+    }
+    return String(v).trim();
+  }
+  function num(v) {
+    if (typeof v === 'number') return v;
+    if (v === null || v === undefined) return NaN;
+    return parseFloat(String(v).replace(',', '.'));
+  }
+
+  // ---------------- Parsing ----------------
+  function parseWorkbook(buffer) {
+    var wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+    var need = ['Synthese', 'Details_par_classe', 'Repartition_classes'];
+    for (var i = 0; i < need.length; i++) {
+      if (wb.SheetNames.indexOf(need[i]) === -1) {
+        throw new Error('Sheet "' + need[i] + '" not found. Found: ' + wb.SheetNames.join(', '));
+      }
+    }
+    var syn  = XLSX.utils.sheet_to_json(wb.Sheets['Synthese'], { defval: null });
+    var det  = XLSX.utils.sheet_to_json(wb.Sheets['Details_par_classe'], { defval: null });
+    var rep  = XLSX.utils.sheet_to_json(wb.Sheets['Repartition_classes'], { defval: null });
+
+    var byDate = {};
+    syn.forEach(function (r) {
+      if (r.Date === null) return;
+      var k = dateKey(r.Date);
+      byDate[k] = {
+        key: k,
+        global: {
+          accuracy: num(r.Accuracy),
+          pMacro: num(r.Precision_macro), rMacro: num(r.Recall_macro), f1Macro: num(r.F1_macro),
+          pW: num(r.Precision_weighted), rW: num(r.Recall_weighted), f1W: num(r.F1_weighted),
+          nTrain: num(r.N_train), nTest: num(r.N_test), nTotal: num(r.N_total)
+        },
+        classes: [],
+        distribution: []
+      };
+    });
+    det.forEach(function (r) {
+      if (r.Date === null) return;
+      var k = dateKey(r.Date);
+      if (!byDate[k]) return;
+      byDate[k].classes.push({
+        cls: String(r.Classe),
+        precision: num(r.Precision), recall: num(r.Recall),
+        f1: num(r.F1), support: num(r.Support)
+      });
+    });
+    rep.forEach(function (r) {
+      if (r.Date === null) return;
+      var k = dateKey(r.Date);
+      if (!byDate[k]) return;
+      byDate[k].distribution.push({ cls: String(r.Classe), count: num(r.Effectif) });
+    });
+
+    var list = Object.keys(byDate).map(function (k) { return byDate[k]; });
+    list.sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+    list.forEach(function (run) {
+      run.classes.sort(function (a, b) { return a.cls.localeCompare(b.cls, undefined, { numeric: true }); });
+      run.distribution.sort(function (a, b) { return a.cls.localeCompare(b.cls, undefined, { numeric: true }); });
+    });
+    if (!list.length) throw new Error('No runs found in sheet "Synthese".');
+    return list;
+  }
+
+  // ---------------- Loading ----------------
+  function loadBuffer(buffer, sourceLabel, live) {
+    try {
+      runs = parseWorkbook(buffer);
+    } catch (e) {
+      toast('Could not read the file: ' + e.message, true);
+      return;
+    }
+    selectedIdx = runs.length - 1; // latest run by default
+    $('emptyState').style.display = 'none';
+    $('dashboard').style.display = 'block';
+    $('runSelect').style.display = '';
+    $('fileStatus').textContent = sourceLabel + ' \u00b7 ' + runs.length + ' run' + (runs.length > 1 ? 's' : '');
+    $('statusDot').className = 'status-dot' + (live ? ' live' : '');
+    buildRunSelect();
+    renderAll();
+    toast('Loaded ' + runs.length + ' run' + (runs.length > 1 ? 's' : '') + ' \u2014 showing the latest.');
+  }
+
+  function readFileObject(file, live) {
+    var reader = new FileReader();
+    reader.onload = function (e) { loadBuffer(new Uint8Array(e.target.result), file.name, live); };
+    reader.onerror = function () { toast('Failed to read the file.', true); };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function connectViaPicker() {
+    if (!window.showOpenFilePicker) {
+      toast('Live connection needs Chrome or Edge \u2014 using upload instead.', true);
+      $('fileInput').click();
+      return;
+    }
+    window.showOpenFilePicker({
+      types: [{ description: 'Excel workbook', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx', '.xlsm'] } }],
+      multiple: false
+    }).then(function (handles) {
+      fileHandle = handles[0];
+      $('refreshBtn').style.display = '';
+      return refreshFromHandle().then(function () { stampStatus(); startAutoRefresh(); });
+    }).catch(function (e) {
+      if (e && e.name === 'AbortError') return; // user cancelled
+      toast('Could not open the file picker: ' + e.message, true);
+    });
+  }
+
+  function refreshFromHandle() {
+    if (!fileHandle) return;
+    return fileHandle.getFile().then(function (file) {
+      readFileObject(file, true);
+    }).catch(function (e) {
+      toast('Refresh failed: ' + e.message, true);
+    });
+  }
+
+  // ---------------- Hard-wired URL source + auto-refresh ----------------
+  function fetchFromUrl(showErrors) {
+    return fetch(DATA_SOURCE_URL, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.arrayBuffer();
+      })
+      .then(function (buf) {
+        var name = DATA_SOURCE_URL.split('/').pop().split('?')[0] || 'data source';
+        loadBuffer(new Uint8Array(buf), name + ' (auto)', true);
+        stampStatus();
+      })
+      .catch(function (e) {
+        if (showErrors) {
+          toast('Could not reach the data source (' + e.message + '). Check DATA_SOURCE_URL, CORS, and that the server is running.', true);
+        }
+      });
+  }
+
+  function refreshActiveSource(showErrors) {
+    if (DATA_SOURCE_URL) return fetchFromUrl(showErrors);
+    if (fileHandle) return refreshFromHandle();
+  }
+
+  function stampStatus() {
+    if (AUTO_REFRESH_MINUTES > 0 && (DATA_SOURCE_URL || fileHandle)) {
+      var now = new Date();
+      var p = function (n) { return String(n).padStart(2, '0'); };
+      $('fileStatus').textContent += ' \u00b7 auto-refresh every ' + AUTO_REFRESH_MINUTES +
+        ' min \u00b7 last update ' + p(now.getHours()) + ':' + p(now.getMinutes());
+    }
+  }
+
+  function startAutoRefresh() {
+    if (autoTimer) clearInterval(autoTimer);
+    if (AUTO_REFRESH_MINUTES > 0 && (DATA_SOURCE_URL || fileHandle)) {
+      autoTimer = setInterval(function () { refreshActiveSource(false); }, AUTO_REFRESH_MINUTES * 60 * 1000);
+    }
+  }
+
+  // ---------------- Rendering ----------------
+  function buildRunSelect() {
+    var sel = $('runSelect');
+    sel.innerHTML = '';
+    runs.forEach(function (run, i) {
+      var opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = 'Run ' + (i + 1) + ' \u2014 ' + run.key;
+      sel.appendChild(opt);
+    });
+    sel.value = selectedIdx;
+  }
+
+  function setDelta(id, cur, prev, digits) {
+    var el = $(id);
+    if (prev === undefined || prev === null || isNaN(prev)) {
+      el.textContent = runs.length > 1 ? '' : 'first run \u2014 nothing to compare yet';
+      el.className = 'delta';
+      return;
+    }
+    var d = cur - prev;
+    var arrow = d > 0 ? '\u25b2' : d < 0 ? '\u25bc' : '\u25cf';
+    el.textContent = arrow + ' ' + (d >= 0 ? '+' : '') + d.toFixed(digits === undefined ? 3 : digits) + ' vs previous run';
+    el.className = 'delta ' + (d > 0 ? 'up' : d < 0 ? 'down' : '');
+  }
+
+  function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  function renderAll() {
+    var run = runs[selectedIdx];
+    var prev = selectedIdx > 0 ? runs[selectedIdx - 1] : null;
+    var g = run.global, pg = prev ? prev.global : null;
+
+    // KPIs
+    $('runMeta').textContent = 'Run ' + (selectedIdx + 1) + ' of ' + runs.length + ' \u00b7 ' + run.key;
+    $('kAcc').textContent = fmt(g.accuracy);
+    $('kF1m').textContent = fmt(g.f1Macro);
+    $('kF1w').textContent = fmt(g.f1W);
+    $('kSize').textContent = fmtInt(g.nTrain) + ' / ' + fmtInt(g.nTest);
+    $('dSize').textContent = 'train / test \u00b7 total ' + fmtInt(g.nTotal);
+    setDelta('dAcc', g.accuracy, pg ? pg.accuracy : null);
+    setDelta('dF1m', g.f1Macro, pg ? pg.f1Macro : null);
+    setDelta('dF1w', g.f1W, pg ? pg.f1W : null);
+    $('kPm').textContent = fmt(g.pMacro);
+    $('kRm').textContent = fmt(g.rMacro);
+    $('kPw').textContent = fmt(g.pW);
+    $('kRw').textContent = fmt(g.rW);
+
+    renderTrend();
+    renderClass(run);
+    renderDist(run);
+  }
+
+  function baseOptions() {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { left: 6, right: 10, top: 4 } },
+      plugins: {
+        legend: { labels: { color: cssVar('--text'), font: { family: 'Inter', size: 12.5 }, boxWidth: 14, boxHeight: 14 } },
+        tooltip: {
+          backgroundColor: cssVar('--surface-2'),
+          borderColor: cssVar('--line'),
+          borderWidth: 1,
+          titleColor: cssVar('--text'),
+          bodyColor: cssVar('--text'),
+          bodyFont: { family: 'IBM Plex Mono' }
+        }
+      },
+      scales: {
+        x: { ticks: { color: cssVar('--muted'), font: { family: 'Inter', size: 11.5 }, padding: 4 }, grid: { color: 'rgba(42,54,80,0.5)' } },
+        y: {
+          ticks: {
+            color: cssVar('--muted'),
+            font: { family: 'IBM Plex Mono', size: 11.5 },
+            padding: 8,
+            callback: function (v) { return Number(v).toFixed(1); }
+          },
+          grid: { color: 'rgba(42,54,80,0.5)' }
+        }
+      }
+    };
+  }
+
+  function renderTrend() {
+    var labels = runs.map(function (r, i) { return 'Run ' + (i + 1) + ' \u00b7 ' + r.key.slice(0, 10); });
+    var opts = baseOptions();
+    opts.scales.y.suggestedMin = 0; opts.scales.y.suggestedMax = 1;
+    var mk = function (label, color, data) {
+      return { label: label, data: data, borderColor: color, backgroundColor: color,
+               tension: 0.3, pointRadius: 4, pointHoverRadius: 6, borderWidth: 2 };
+    };
+    if (charts.trend) charts.trend.destroy();
+    charts.trend = new Chart($('trendChart'), {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          mk('Accuracy',    cssVar('--series-a'), runs.map(function (r) { return r.global.accuracy; })),
+          mk('F1 macro',    cssVar('--series-b'), runs.map(function (r) { return r.global.f1Macro; })),
+          mk('F1 weighted', cssVar('--series-c'), runs.map(function (r) { return r.global.f1W; }))
+        ]
+      },
+      options: opts
+    });
+    $('trendNote').textContent = runs.length === 1
+      ? 'Only one run is logged so far \u2014 the trend lines will take shape as you add training runs to the Excel file and hit Refresh.'
+      : '';
+  }
+
+  function renderClass(run) {
+    var labels = run.classes.map(function (c) { return 'Class ' + c.cls; });
+    var opts = baseOptions();
+    opts.scales.y.suggestedMin = 0; opts.scales.y.suggestedMax = 1;
+    if (charts.cls) charts.cls.destroy();
+    charts.cls = new Chart($('classChart'), {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'Precision', data: run.classes.map(function (c) { return c.precision; }), backgroundColor: cssVar('--series-a'), borderRadius: 4 },
+          { label: 'Recall',    data: run.classes.map(function (c) { return c.recall; }),    backgroundColor: cssVar('--series-b'), borderRadius: 4 },
+          { label: 'F1',        data: run.classes.map(function (c) { return c.f1; }),        backgroundColor: cssVar('--series-c'), borderRadius: 4 }
+        ]
+      },
+      options: opts
+    });
+
+    $('classMeta').textContent = run.key;
+    var tbody = $('classTable').querySelector('tbody');
+    tbody.innerHTML = '';
+    run.classes.forEach(function (c) {
+      var status = c.f1 >= F1_STRONG ? ['strong', 'Strong'] : c.f1 >= F1_OK ? ['ok', 'OK'] : ['weak', 'Weak'];
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>Class ' + c.cls + '</td>' +
+        '<td class="num">' + fmt(c.precision) + '</td>' +
+        '<td class="num">' + fmt(c.recall) + '</td>' +
+        '<td class="num">' + fmt(c.f1) + '</td>' +
+        '<td class="num">' + fmtInt(c.support) + '</td>' +
+        '<td><span class="pill ' + status[0] + '">' + status[1] + '</span></td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderDist(run) {
+    var palette = [cssVar('--series-a'), cssVar('--series-b'), cssVar('--series-c'), cssVar('--series-d'),
+                   '#b48fff', '#6fd88f', '#ff9ec6', '#8fd8ff'];
+    if (charts.dist) charts.dist.destroy();
+    charts.dist = new Chart($('distChart'), {
+      type: 'doughnut',
+      data: {
+        labels: run.distribution.map(function (d) { return 'Class ' + d.cls; }),
+        datasets: [{
+          data: run.distribution.map(function (d) { return d.count; }),
+          backgroundColor: run.distribution.map(function (_, i) { return palette[i % palette.length]; }),
+          borderColor: cssVar('--surface'),
+          borderWidth: 3
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '58%',
+        plugins: {
+          legend: { position: 'right', labels: { color: cssVar('--text'), font: { family: 'Inter', size: 12.5 }, boxWidth: 14, boxHeight: 14 } },
+          tooltip: {
+            backgroundColor: cssVar('--surface-2'), borderColor: cssVar('--line'), borderWidth: 1,
+            titleColor: cssVar('--text'), bodyColor: cssVar('--text'), bodyFont: { family: 'IBM Plex Mono' },
+            callbacks: {
+              label: function (ctx) {
+                var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+                return ' ' + fmtInt(ctx.parsed) + ' examples (' + (100 * ctx.parsed / total).toFixed(1) + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+
+    $('distMeta').textContent = run.key;
+    var counts = run.distribution.map(function (d) { return d.count; });
+    if (counts.length) {
+      var max = Math.max.apply(null, counts), min = Math.min.apply(null, counts);
+      var maxCls = run.distribution.filter(function (d) { return d.count === max; })[0].cls;
+      var minCls = run.distribution.filter(function (d) { return d.count === min; })[0].cls;
+      var ratio = min > 0 ? max / min : Infinity;
+      $('kImb').textContent = isFinite(ratio) ? ratio.toFixed(1) + '\u00d7' : '\u221e';
+      $('kImb').style.color = ratio >= 10 ? cssVar('--bad') : ratio >= 3 ? cssVar('--warn') : cssVar('--good');
+      $('imbNote').textContent = 'Class ' + maxCls + ' (' + fmtInt(max) + ' examples) is ' +
+        (isFinite(ratio) ? ratio.toFixed(1) : '\u221e') + ' times larger than class ' + minCls +
+        ' (' + fmtInt(min) + '). ' +
+        (ratio >= 10 ? 'This is a strong imbalance \u2014 rare classes will struggle unless you rebalance (e.g. class weights, oversampling).'
+         : ratio >= 3 ? 'This is a moderate imbalance \u2014 keep an eye on the rare classes\u2019 F1.'
+         : 'The classes are reasonably balanced.');
+    }
+  }
+
+  // ---------------- Events ----------------
+  $('connectBtn').addEventListener('click', connectViaPicker);
+  $('pickBtn').addEventListener('click', connectViaPicker);
+  $('uploadBtn').addEventListener('click', function () { $('fileInput').click(); });
+  $('refreshBtn').addEventListener('click', function () { refreshActiveSource(true); toast('Reloading data source\u2026'); });
+  $('fileInput').addEventListener('change', function (e) {
+    if (e.target.files.length) { fileHandle = null; $('refreshBtn').style.display = 'none'; readFileObject(e.target.files[0], false); }
+    e.target.value = '';
+  });
+  $('runSelect').addEventListener('change', function (e) {
+    selectedIdx = parseInt(e.target.value, 10);
+    renderAll();
+  });
+  $('explainToggle').addEventListener('change', function (e) {
+    document.body.classList.toggle('explain-on', e.target.checked);
+  });
+
+  // Drag & drop anywhere
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) { e.preventDefault(); $('emptyState').classList.add('drag'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) { e.preventDefault(); $('emptyState').classList.remove('drag'); });
+  });
+  document.addEventListener('drop', function (e) {
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    if (!/\.(xlsx|xlsm)$/i.test(f.name)) { toast('Please drop an .xlsx file.', true); return; }
+    fileHandle = null; $('refreshBtn').style.display = 'none';
+    readFileObject(f, false);
+  });
+
+  // ---------------- Boot ----------------
+  // Charts created before the web fonts finish loading measure their axis
+  // labels with a fallback font; once IBM Plex Mono swaps in, wider glyphs
+  // get clipped at the canvas edge. Re-render when fonts are ready.
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { if (runs.length) renderAll(); });
+  }
+
+  if (DATA_SOURCE_URL) {
+    $('refreshBtn').style.display = '';
+    $('fileStatus').textContent = 'Connecting to data source\u2026';
+    fetchFromUrl(true).then(startAutoRefresh);
+  }
+})();
+</script>
+</body>
+</html>
